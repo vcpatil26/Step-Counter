@@ -1,0 +1,2 @@
+Could Not Open /dev/ttyUSB2
+Error -> Could not open /dev/ttyUSB2

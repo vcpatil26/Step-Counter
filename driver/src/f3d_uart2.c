@@ -1,0 +1,128 @@
+#include <f3d_uart2.h>
+#include <queue.h>
+static queue_t rxbuf2;
+static queue_t txbuf2;
+void f3d_uart2_init(void) {
+
+  // Initialization routines related to UART1
+  GPIO_InitTypeDef GPIO_InitStructure;
+  USART_InitTypeDef USART_InitStructure;
+  NVIC_InitTypeDef NVIC_InitStructure;
+
+  RCC_AHBPeriphClockCmd(RCC_AHBPeriph_GPIOD, ENABLE);
+  RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2, ENABLE);
+
+  GPIO_StructInit(&GPIO_InitStructure);
+  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_5;
+  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
+  GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+  GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
+  GPIO_Init(GPIOD, &GPIO_InitStructure);
+
+  GPIO_StructInit(&GPIO_InitStructure);
+  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_6;
+  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
+  GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+  GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
+  GPIO_Init(GPIOD, &GPIO_InitStructure);
+
+  GPIO_PinAFConfig(GPIOD,5,GPIO_AF_7);
+  GPIO_PinAFConfig(GPIOD,6,GPIO_AF_7);
+
+  USART_StructInit(&USART_InitStructure);
+  USART_InitStructure.USART_BaudRate = 57600;
+  USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
+  USART_Init(USART2 ,&USART_InitStructure);
+  USART_Cmd(USART2 , ENABLE);
+
+  // Initialize the rx and tx queues
+  init_queue(&rxbuf2);
+  init_queue(&txbuf2);
+  // Setup the NVIC priority and subpriority
+  NVIC_InitStructure.NVIC_IRQChannel = USART2_IRQn;
+  NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0x07;
+  NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0x07;
+  NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+  NVIC_Init(&NVIC_InitStructure);
+  // Enable the RX interrupt
+  USART_ITConfig(USART2,USART_IT_RXNE,ENABLE);
+}
+
+void USART2_IRQHandler(void) {
+  int ch;
+  if (USART_GetFlagStatus(USART2, USART_FLAG_RXNE)) {
+    ch = USART_ReceiveData(USART2);
+    while (!enqueue(&rxbuf2,ch));
+  }
+  if (USART_GetFlagStatus(USART2,USART_FLAG_TXE)) {
+    ch = dequeue(&txbuf2);
+    if (ch) {
+      USART_SendData(USART2,ch);
+    }
+    else {
+      USART_ITConfig(USART2,USART_IT_TXE,DISABLE);
+    }
+  }
+}
+
+/*void flush2()
+{
+  USART_ITConfig(USART2,USART_IT_TXE,ENABLE);
+}*/
+
+int putchar2(int c) {
+  while (!enqueue(&txbuf2,c));
+}
+
+/* while (USART_GetFlagStatus(USART2,USART_FLAG_TXE) ==(uint16_t)RESET) */
+/* return 0; */
+ 
+/* //if(c == '\n') */
+/* USART_ITConfig(USART2,USART_IT_TXE,ENABLE); */
+/* USART_SendData(USART2, c); */
+/* } */
+
+int getchar2(void) {
+  int ch;
+  while (!(ch=dequeue(&rxbuf2)));
+  return (ch);
+}
+
+int getchar2_nb(void) {
+  return (dequeue(&rxbuf2));
+}
+
+
+/* if(USART_GetFlagStatus(USART2, USART_FLAG_RXNE) == (uint16_t)RESET) */
+/* return 0; */
+/* else */
+/* { */
+/* c = USART_ReceiveData(USART2); */
+/* return c; */
+/* } */
+/* } */
+/*
+*/
+
+/* int getchar2_nb(void) */
+/* { */
+/* return (dequeue(&rxbuf2)); */
+/* } */
+
+void flush2()
+{
+  USART_ITConfig(USART2,USART_IT_TXE,ENABLE);
+}
+
+void putstring2(char *s)
+{
+  //
+  //
+  while(*s != 0)
+    {
+      putchar(*s);
+      s++;
+    }
+}

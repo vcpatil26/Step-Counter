@@ -1,0 +1,158 @@
+#include <sensor.h>
+
+void f3d_sensor_interface_init()
+{
+
+GPIO_InitTypeDef GPIO_InitStructure;
+SPI_InitTypeDef SPI_InitStructure;
+RCC_APB2PeriphClockCmd(RCC_APB2Periph_SPI1 , ENABLE);
+RCC_AHBPeriphClockCmd(RCC_AHBPeriph_GPIOA, ENABLE);
+
+
+// Initialization for SCK, MISO, MOSI
+GPIO_PinAFConfig(GPIOA, GPIO_PinSource5, GPIO_AF_5);
+GPIO_PinAFConfig(GPIOA, GPIO_PinSource6, GPIO_AF_5);
+GPIO_PinAFConfig(GPIOA, GPIO_PinSource7, GPIO_AF_5);
+GPIO_StructInit(&GPIO_InitStructure);
+GPIO_InitStructure.GPIO_Pin = GPIO_Pin_5 | GPIO_Pin_6 | GPIO_Pin_7;
+GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
+GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
+GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+GPIO_Init(GPIOA, &GPIO_InitStructure);
+
+/* Configure GPIO PIN for the Chip select */
+GPIO_StructInit(&GPIO_InitStructure);
+GPIO_InitStructure.GPIO_Pin = GPIO_Pin_8;
+GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
+GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+GPIO_Init(GPIOA, &GPIO_InitStructure);
+
+/* Deselect : Chip Select high */
+SENSOR_CS_HIGH();
+
+/* SPI configuration */
+SPI_I2S_DeInit(SPI1);
+SPI_InitStructure.SPI_Direction = SPI_Direction_2Lines_FullDuplex;
+SPI_InitStructure.SPI_DataSize = SPI_DataSize_8b;
+SPI_InitStructure.SPI_CPOL = SPI_CPOL_Low;
+SPI_InitStructure.SPI_CPHA = SPI_CPHA_1Edge;
+SPI_InitStructure.SPI_NSS = SPI_NSS_Soft;
+SPI_InitStructure.SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_8;
+SPI_InitStructure.SPI_FirstBit = SPI_FirstBit_MSB;
+SPI_InitStructure.SPI_CRCPolynomial = 7;
+SPI_InitStructure.SPI_Mode = SPI_Mode_Master;
+SPI_Init(SPI1, &SPI_InitStructure);
+SPI_RxFIFOThresholdConfig(SPI1, SPI_RxFIFOThreshold_QF);
+SPI_Cmd(SPI1, ENABLE);
+
+//LPS331AP_WriteByte(LPS331AP_CTRL_REG1_ADDR,0x00); // @0x20=0x00
+//LPS331AP_WriteByte(LPS331AP_RES_ADDR,0x7A);// @0x10=0x7A
+//LPS331AP_WriteByte(LPS331AP_CTRL_REG1_ADDR,0x84);
+//LPS331AP_WriteByte(LPS331AP_CTRL_REG2_ADDR,0x01);
+//LPS331AP_Read((u8*)pu8, LPS331AP_TEMP_OUT_ADDR, 2); // @0x2B~2C
+//Temp_Reg_s16 = ((u16) pu8[1]<<8) | pu8[0]; // make a SIGNED 16 bit variable
+//Temperature_DegC = 42.5 + Temp_Ref_s16 / (120*4); // scale and offset
+
+}
+
+
+void f3d_sensor_init(void) {
+
+f3d_sensor_interface_init();
+
+uint8_t ctrl1 = 0x00;
+uint8_t ctrl2 = 0x01;
+f3d_sensor_write(&ctrl1, 0x20, 1);
+
+uint8_t RES_CONF = 0x7A;
+f3d_sensor_write(&RES_CONF, 0x10, 1);
+
+ctrl1 = 0x84;
+f3d_sensor_write(&ctrl1, 0x20, 1);
+
+ctrl1 = 0x01;
+f3d_sensor_write(&ctrl1, 0x21, 1);
+
+f3d_sensor_read(&ctrl1, 0xF, 1);//WHO AM I
+
+assert_param(ctrl1 == 0xBB);
+int16_t temperature;
+uint8_t pu8[3] ={0};
+f3d_sensor_read(pu8, 0x2B, 2);//READING TEMPERATURE
+temperature = ((uint16_t) pu8[1]<<8) | pu8[0];
+float Temperature_DegC = 42.5 + temperature / (120*4);
+printf("Temperature is:%f\n",Temperature_DegC);
+f3d_sensor_read(pu8, 0x28, 3);//READING PRESSURE
+uint32_t pressure = ((uint32_t)pu8[2]<<16)|((uint32_t)pu8[1]<<8)|pu8[0]; // make a unsigned 32 bit variable
+float pressure1 = pressure / 4096;
+printf("Pressure is:%f mb\n",pressure1);
+
+}
+
+void f3d_sensor_write(uint8_t* pBuffer, uint8_t WriteAddr, uint16_t NumByteToWrite) {
+ 
+if(NumByteToWrite > 0x01) {
+WriteAddr |= (uint8_t) ((uint8_t)0x40); // Set bit 6 if multibyte command
+}
+SENSOR_CS_LOW();
+f3d_sensor_sendbyte(WriteAddr);
+while(NumByteToWrite >= 0x01) {
+f3d_sensor_sendbyte(*pBuffer);
+NumByteToWrite--;
+pBuffer++;
+}
+SENSOR_CS_HIGH();
+
+}
+
+static uint8_t f3d_sensor_sendbyte(uint8_t byte) {
+ 
+while (SPI_I2S_GetFlagStatus(SPI1, SPI_I2S_FLAG_TXE) == RESET);
+SPI_SendData8(SPI1, byte);
+while (SPI_I2S_GetFlagStatus(SPI1, SPI_I2S_FLAG_RXNE) == RESET);
+return (uint8_t)SPI_ReceiveData8(SPI1);
+
+}
+static void f3d_sensor_oneshot_start_and_wait()
+{
+
+}
+
+void f3d_sensor_getdata(float *pfData) {
+ 
+    uint8_t tmpbuffer[6] ={0};
+    int16_t RawData[3] = {0};
+    float sensitivity = 0;
+    int i =0;
+    f3d_sensor_read(tmpbuffer,0x28,6);
+
+    // Read the data for all 4 axis
+    for(i=0; i<3; i++)
+        RawData[i]=(int16_t)(((uint16_t)tmpbuffer[2*i+1] << 8) + tmpbuffer[2*i]);
+
+    for(i=0; i<3; i++)
+        pfData[i]=(float)RawData[i]/L3G_Sensitivity_500dps;
+
+}
+
+
+void f3d_sensor_read(uint8_t* pBuffer, uint8_t ReadAddr, uint16_t NumByteToRead) {
+    if (NumByteToRead > 0x01) {
+        ReadAddr |= (uint8_t)(0x80 | 0x40); // If sending more that one byte set multibyte commands
+    }
+    else {
+        ReadAddr |= (uint8_t) (0x80); // Else just set the read mode
+    }
+    SENSOR_CS_LOW();
+    f3d_sensor_sendbyte(ReadAddr);
+    while(NumByteToRead > 0x00) {
+        *pBuffer = f3d_sensor_sendbyte(((uint8_t)0x00));
+        NumByteToRead--;
+        pBuffer++;
+    }
+  
+    SENSOR_CS_HIGH();
+
+}
